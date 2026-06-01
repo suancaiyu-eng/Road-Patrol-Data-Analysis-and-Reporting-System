@@ -17,7 +17,7 @@
         <div class="card">
             <div class="card-header">病害类型分布</div>
             <div class="card-body">
-                {% if stats.type_distribution.values %}
+                {% if stats.type_distribution['values'] %}
                 <canvas id="typeChart" height="260"></canvas>
                 {% else %}
                 <div class="text-center py-4 text-muted">暂无病害数据</div>
@@ -31,7 +31,7 @@
         <div class="card">
             <div class="card-header">严重程度分布</div>
             <div class="card-body">
-                {% if stats.severity_distribution.values %}
+                {% if stats.severity_distribution['values'] %}
                 <canvas id="severityChart" height="260"></canvas>
                 {% else %}
                 <div class="text-center py-4 text-muted">暂无数据</div>
@@ -99,12 +99,12 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
 <script>
 // 病害类型分布
-{% if stats.type_distribution.values %}
+{% if stats.type_distribution['values'] %}
 new Chart(document.getElementById('typeChart'), {
     type: 'pie',
     data: {
         labels: {{ stats.type_distribution.labels | tojson }},
-        datasets: [{ data: {{ stats.type_distribution.values | tojson }},
+        datasets: [{ data: {{ stats.type_distribution['values'] | tojson }},
             backgroundColor: ['#1a237e','#283593','#3949ab','#5c6bc0','#7986cb','#9fa8da','#c5cae9'],
         }]
     },
@@ -113,14 +113,14 @@ new Chart(document.getElementById('typeChart'), {
 {% endif %}
 
 // 严重程度分布
-{% if stats.severity_distribution.values %}
+{% if stats.severity_distribution['values'] %}
 new Chart(document.getElementById('severityChart'), {
     type: 'bar',
     data: {
         labels: {{ stats.severity_distribution.labels | tojson }},
         datasets: [{
             label: '病害数量',
-            data: {{ stats.severity_distribution.values | tojson }},
+            data: {{ stats.severity_distribution['values'] | tojson }},
             backgroundColor: ['#4caf50', '#ff9800', '#f44336'],
             borderRadius: 6,
         }]

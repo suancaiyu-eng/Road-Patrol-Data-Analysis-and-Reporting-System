@@ -45,7 +45,7 @@ class RoadDefectDetector:
     def _detect_yolo(self, image_path: str) -> dict:
         """YOLO ONNX推理"""
         import onnxruntime as ort
-        img = cv2.imread(image_path)
+        img = _read_image(image_path)
         if img is None:
             return {'defects': [], 'annotated_image': None, 'method': 'yolo', 'error': '无法读取图像'}
         h, w = img.shape[:2]
@@ -84,7 +84,7 @@ class RoadDefectDetector:
 
     def _detect_opencv(self, image_path: str) -> dict:
         """双策略检测：霍夫线检测（裂缝）+ 轮廓分析（坑洼/块状病害）"""
-        img = cv2.imread(image_path)
+        img = _read_image(image_path)
         if img is None:
             return {'defects': [], 'annotated_image': None, 'method': 'opencv', 'error': '无法读取图像'}
         h, w = img.shape[:2]
@@ -266,3 +266,12 @@ class RoadDefectDetector:
 
 
 detector = RoadDefectDetector()
+
+
+def _read_image(image_path: str):
+    """Read images from paths containing non-ASCII characters on Windows."""
+    try:
+        data = np.fromfile(image_path, dtype=np.uint8)
+        return cv2.imdecode(data, cv2.IMREAD_COLOR)
+    except Exception:
+        return None

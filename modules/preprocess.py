@@ -11,7 +11,7 @@ def preprocess_image(image_path: str) -> dict:
     对巡检图像进行预处理
     返回原始图像和预处理后的图像的base64，以及处理步骤说明
     """
-    img = cv2.imread(image_path)
+    img = _read_image(image_path)
     if img is None:
         return {'error': '无法读取图像'}
 
@@ -60,3 +60,12 @@ def _gray_to_base64(gray_img):
     """灰度图像转base64"""
     _, buffer = cv2.imencode('.jpg', gray_img, [cv2.IMWRITE_JPEG_QUALITY, 85])
     return base64.b64encode(buffer).decode('utf-8')
+
+
+def _read_image(image_path: str):
+    """Read images from paths containing non-ASCII characters on Windows."""
+    try:
+        data = np.fromfile(image_path, dtype=np.uint8)
+        return cv2.imdecode(data, cv2.IMREAD_COLOR)
+    except Exception:
+        return None

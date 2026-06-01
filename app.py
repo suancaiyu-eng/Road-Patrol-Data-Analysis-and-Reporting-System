@@ -260,7 +260,7 @@ def detect_defects(inspection_id):
             'defects': defects,
         })
 
-    return render_template('detect.html', inspection=inspection, images=images)
+    return render_template('detect.html', inspection=inspection, images=images, detector=detector)
 
 
 @app.route('/detect/<int:inspection_id>/batch', methods=['POST'])
