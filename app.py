@@ -4,16 +4,18 @@
 import os
 import csv
 import uuid
+from functools import wraps
 from datetime import datetime
 from io import StringIO
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   flash, jsonify, send_from_directory)
+                   flash, jsonify, send_from_directory, session, g, abort)
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from config import (BASE_DIR, DATABASE_URI, UPLOAD_FOLDER, REPORT_FOLDER,
                     SECRET_KEY, DEBUG, ALLOWED_IMAGE_EXTENSIONS, ALLOWED_GPS_EXTENSIONS)
-from models import db, Inspection, Image, Defect, GPSTrack
+from models import db, User, Inspection, Image, Defect, GPSTrack
 from detector import detector
 from modules.preprocess import preprocess_image
 from modules.analysis import analyze_inspection
@@ -35,27 +37,143 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        _ensure_user_schema()
 
     return app
 
+def _ensure_user_schema():
+    """Add user ownership columns when running against an older SQLite DB."""
+    if db.engine.dialect.name != 'sqlite':
+        return
+
+    with db.engine.begin() as conn:
+        columns = [row[1] for row in conn.exec_driver_sql('PRAGMA table_info(inspections)').fetchall()]
+        if 'user_id' not in columns:
+            conn.exec_driver_sql('ALTER TABLE inspections ADD COLUMN user_id INTEGER')
+
 
 app = create_app()
+
+
+@app.before_request
+def load_current_user():
+    user_id = session.get('user_id')
+    g.current_user = db.session.get(User, user_id) if user_id else None
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if g.current_user is None:
+            return redirect(url_for('login', next=request.path))
+        return view(*args, **kwargs)
+
+    return wrapped_view
+
+
+def _user_inspection_or_404(inspection_id):
+    return Inspection.query.filter_by(id=inspection_id, user_id=g.current_user.id).first_or_404()
+
+
+def _user_image_or_404(image_id):
+    return (Image.query.join(Inspection)
+            .filter(Image.id == image_id, Inspection.user_id == g.current_user.id)
+            .first_or_404())
+
+
+def _user_defects_query(inspection_id=None):
+    query = Defect.query.join(Inspection, Defect.inspection_id == Inspection.id).filter(
+        Inspection.user_id == g.current_user.id)
+    if inspection_id is not None:
+        query = query.filter(Defect.inspection_id == inspection_id)
+    return query
+
+
+# ============================================================
+# 账号登录
+# ============================================================
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if g.current_user is not None:
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        user = User.query.filter_by(username=username).first()
+
+        if user is None or not check_password_hash(user.password_hash, password):
+            flash('用户名或密码错误', 'danger')
+            return redirect(url_for('login'))
+
+        session.clear()
+        session['user_id'] = user.id
+        flash('登录成功', 'success')
+        return redirect(request.args.get('next') or url_for('index'))
+
+    return render_template('login.html')
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if g.current_user is not None:
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not username or not password:
+            flash('用户名和密码不能为空', 'danger')
+            return redirect(url_for('register'))
+        if len(username) < 3:
+            flash('用户名至少需要 3 个字符', 'danger')
+            return redirect(url_for('register'))
+        if len(password) < 6:
+            flash('密码至少需要 6 个字符', 'danger')
+            return redirect(url_for('register'))
+        if password != confirm_password:
+            flash('两次输入的密码不一致', 'danger')
+            return redirect(url_for('register'))
+        if User.query.filter_by(username=username).first():
+            flash('用户名已存在', 'danger')
+            return redirect(url_for('register'))
+
+        user = User(username=username, password_hash=generate_password_hash(password))
+        db.session.add(user)
+        db.session.commit()
+        flash('账号创建成功，请登录', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('register.html')
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('已退出登录', 'success')
+    return redirect(url_for('login'))
 
 
 # ============================================================
 # 首页 - 仪表盘
 # ============================================================
 @app.route('/')
+@login_required
 def index():
-    inspections = Inspection.query.order_by(Inspection.created_at.desc()).limit(10).all()
-    total_inspections = Inspection.query.count()
-    total_defects = Defect.query.count()
-    total_images = Image.query.count()
+    inspections = (Inspection.query.filter_by(user_id=g.current_user.id)
+                   .order_by(Inspection.created_at.desc()).limit(10).all())
+    total_inspections = Inspection.query.filter_by(user_id=g.current_user.id).count()
+    total_defects = _user_defects_query().count()
+    total_images = (Image.query.join(Inspection)
+                    .filter(Inspection.user_id == g.current_user.id).count())
     avg_defects = round(total_defects / max(total_inspections, 1), 1)
 
     # 最近巡检统计
     recent_stats = []
-    for insp in Inspection.query.order_by(Inspection.inspection_date.desc()).limit(7).all():
+    for insp in (Inspection.query.filter_by(user_id=g.current_user.id)
+                 .order_by(Inspection.inspection_date.desc()).limit(7).all()):
         recent_stats.append({
             'date': str(insp.inspection_date),
             'defects': insp.total_defects,
@@ -64,7 +182,7 @@ def index():
 
     # 病害类型汇总
     defect_summary = {}
-    for d in Defect.query.all():
+    for d in _user_defects_query().all():
         name = d.defect_type or '未分类'
         defect_summary[name] = defect_summary.get(name, 0) + 1
 
@@ -82,6 +200,7 @@ def index():
 # 数据导入
 # ============================================================
 @app.route('/import', methods=['GET', 'POST'])
+@login_required
 def import_data():
     if request.method == 'POST':
         title = request.form.get('title', '').strip()
@@ -102,6 +221,7 @@ def import_data():
             return redirect(url_for('import_data'))
 
         inspection = Inspection(
+            user_id=g.current_user.id,
             title=title,
             road_section=road_section,
             inspector=inspector,
@@ -185,11 +305,13 @@ def _import_gps_csv(file_obj, inspection_id) -> int:
 # 巡检记录列表
 # ============================================================
 @app.route('/inspections')
+@login_required
 def inspection_list():
     page = request.args.get('page', 1, type=int)
     per_page = 10
-    pagination = Inspection.query.order_by(Inspection.created_at.desc()).paginate(
-        page=page, per_page=per_page, error_out=False)
+    pagination = (Inspection.query.filter_by(user_id=g.current_user.id)
+                  .order_by(Inspection.created_at.desc())
+                  .paginate(page=page, per_page=per_page, error_out=False))
     return render_template('inspection_list.html', inspections=pagination.items, pagination=pagination)
 
 
@@ -197,8 +319,9 @@ def inspection_list():
 # 巡检详情
 # ============================================================
 @app.route('/inspection/<int:inspection_id>')
+@login_required
 def inspection_detail(inspection_id):
-    inspection = Inspection.query.get_or_404(inspection_id)
+    inspection = _user_inspection_or_404(inspection_id)
 
     # 统计分析
     stats = analyze_inspection(
@@ -209,6 +332,8 @@ def inspection_detail(inspection_id):
     )
 
     images = Image.query.filter_by(inspection_id=inspection_id).all()
+    for image in images:
+        image.url = url_for('uploaded_file', filename=os.path.basename(image.filepath))
     has_gps = GPSTrack.query.filter_by(inspection_id=inspection_id).first() is not None
 
     return render_template('inspection_detail.html',
@@ -222,13 +347,16 @@ def inspection_detail(inspection_id):
 # 病害检测
 # ============================================================
 @app.route('/detect/<int:inspection_id>', methods=['GET', 'POST'])
+@login_required
 def detect_defects(inspection_id):
-    inspection = Inspection.query.get_or_404(inspection_id)
+    inspection = _user_inspection_or_404(inspection_id)
     images = Image.query.filter_by(inspection_id=inspection_id).all()
 
     if request.method == 'POST':
         image_id = request.form.get('image_id', type=int)
-        image = Image.query.get_or_404(image_id)
+        image = _user_image_or_404(image_id)
+        if image.inspection_id != inspection.id:
+            abort(404)
 
         # 执行检测
         result = detector.detect(image.filepath)
@@ -264,8 +392,10 @@ def detect_defects(inspection_id):
 
 
 @app.route('/detect/<int:inspection_id>/batch', methods=['POST'])
+@login_required
 def detect_batch(inspection_id):
     """批量检测所有未处理图像"""
+    inspection = _user_inspection_or_404(inspection_id)
     images = Image.query.filter_by(inspection_id=inspection_id, is_processed=False).all()
     total_defects = 0
 
@@ -287,7 +417,6 @@ def detect_batch(inspection_id):
 
         image.is_processed = True
 
-    inspection = Inspection.query.get(inspection_id)
     inspection.total_defects = Defect.query.filter_by(inspection_id=inspection_id).count()
     db.session.commit()
 
@@ -298,8 +427,9 @@ def detect_batch(inspection_id):
 # 图像预处理
 # ============================================================
 @app.route('/preprocess/<int:image_id>')
+@login_required
 def preprocess_view(image_id):
-    image = Image.query.get_or_404(image_id)
+    image = _user_image_or_404(image_id)
     result = preprocess_image(image.filepath)
     return jsonify(result)
 
@@ -308,8 +438,9 @@ def preprocess_view(image_id):
 # 统计分析
 # ============================================================
 @app.route('/analysis/<int:inspection_id>')
+@login_required
 def analysis_view(inspection_id):
-    inspection = Inspection.query.get_or_404(inspection_id)
+    inspection = _user_inspection_or_404(inspection_id)
     stats = analyze_inspection(
         inspection,
         Defect.query.filter_by(inspection_id=inspection_id),
@@ -323,8 +454,9 @@ def analysis_view(inspection_id):
 # 地图视图
 # ============================================================
 @app.route('/map/<int:inspection_id>')
+@login_required
 def map_view(inspection_id):
-    inspection = Inspection.query.get_or_404(inspection_id)
+    inspection = _user_inspection_or_404(inspection_id)
     tracks = GPSTrack.query.filter_by(inspection_id=inspection_id).order_by(GPSTrack.point_order).all()
     defects = Defect.query.filter_by(inspection_id=inspection_id).all()
 
@@ -341,8 +473,9 @@ def map_view(inspection_id):
 # 报告生成
 # ============================================================
 @app.route('/report/<int:inspection_id>')
+@login_required
 def report_view(inspection_id):
-    inspection = Inspection.query.get_or_404(inspection_id)
+    inspection = _user_inspection_or_404(inspection_id)
     stats = analyze_inspection(
         inspection,
         Defect.query.filter_by(inspection_id=inspection_id),
@@ -354,9 +487,10 @@ def report_view(inspection_id):
 
 
 @app.route('/report/<int:inspection_id>/download')
+@login_required
 def report_download(inspection_id):
     """下载报告HTML文件"""
-    inspection = Inspection.query.get_or_404(inspection_id)
+    inspection = _user_inspection_or_404(inspection_id)
     stats = analyze_inspection(
         inspection,
         Defect.query.filter_by(inspection_id=inspection_id),
@@ -374,7 +508,14 @@ def report_download(inspection_id):
 # 预览上传的图像
 # ============================================================
 @app.route('/uploads/<path:filename>')
+@login_required
 def uploaded_file(filename):
+    image = (Image.query.join(Inspection)
+             .filter(Inspection.user_id == g.current_user.id)
+             .filter(Image.filepath.like(f'%{filename}'))
+             .first())
+    if image is None:
+        abort(404)
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 
@@ -382,8 +523,9 @@ def uploaded_file(filename):
 # 删除
 # ============================================================
 @app.route('/inspection/<int:inspection_id>/delete', methods=['POST'])
+@login_required
 def delete_inspection(inspection_id):
-    inspection = Inspection.query.get_or_404(inspection_id)
+    inspection = _user_inspection_or_404(inspection_id)
     db.session.delete(inspection)
     db.session.commit()
     flash('巡检记录已删除', 'success')
@@ -394,8 +536,9 @@ def delete_inspection(inspection_id):
 # API: 获取统计数据JSON
 # ============================================================
 @app.route('/api/stats/<int:inspection_id>')
+@login_required
 def api_stats(inspection_id):
-    inspection = Inspection.query.get_or_404(inspection_id)
+    inspection = _user_inspection_or_404(inspection_id)
     stats = analyze_inspection(
         inspection,
         Defect.query.filter_by(inspection_id=inspection_id),

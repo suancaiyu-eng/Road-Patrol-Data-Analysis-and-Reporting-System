@@ -12,6 +12,7 @@ class Inspection(db.Model):
     __tablename__ = 'inspections'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, comment='所属用户')
     title = db.Column(db.String(200), nullable=False, comment='巡检任务名称')
     road_section = db.Column(db.String(200), comment='巡检路段')
     inspector = db.Column(db.String(50), comment='巡检员')
@@ -42,6 +43,18 @@ class Inspection(db.Model):
             'total_defects': self.total_defects,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M'),
         }
+
+
+class User(db.Model):
+    """系统用户"""
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    inspections = db.relationship('Inspection', backref='user', lazy='dynamic')
 
 
 class Image(db.Model):
