@@ -24,6 +24,11 @@ def generate_report(inspection, stats: dict) -> str:
     defect_rows = ''
     for i, d in enumerate(dl[:50], 1):  # 最多显示50条
         sev_class = {1: 'sev-light', 2: 'sev-medium', 3: 'sev-serious'}.get(d['severity'], '')
+        gps_text = d.get('gps', '未定位')
+        if d.get('gps_error'):
+            distance = d.get('gps_error_distance')
+            suffix = f'（偏离轨迹 {distance} m）' if distance else ''
+            gps_text = f'{gps_text} <span class="gps-error">GPS有误{suffix}</span>'
         defect_rows += f'''
         <tr class="{sev_class}">
             <td>{i}</td>
@@ -31,7 +36,7 @@ def generate_report(inspection, stats: dict) -> str:
             <td><span class="badge badge-{sev_class}">{d['severity_label']}</span></td>
             <td>{d['confidence']:.0%}</td>
             <td class="text-truncate" style="max-width:200px">{d['image_name']}</td>
-            <td>{d.get('gps', '未定位')}</td>
+            <td>{gps_text}</td>
         </tr>'''
 
     # 生成养护建议
@@ -77,6 +82,7 @@ def generate_report(inspection, stats: dict) -> str:
     .badge-sev-light {{ background: #d4edda; color: #155724; }}
     .badge-sev-medium {{ background: #fff3cd; color: #856404; }}
     .badge-sev-serious {{ background: #f8d7da; color: #721c24; }}
+    .gps-error {{ display: inline-block; margin-left: 4px; padding: 2px 6px; border-radius: 8px; background: #dc3545; color: #fff; font-size: 10px; font-weight: bold; }}
     .maintenance-item {{ background: #f8f9fa; border: 1px solid #e8e8e8; border-radius: 6px; padding: 12px; margin-bottom: 8px; }}
     .maintenance-item h4 {{ font-size: 13px; margin-bottom: 4px; }}
     .maintenance-item p {{ font-size: 12px; color: #555; line-height: 1.6; }}

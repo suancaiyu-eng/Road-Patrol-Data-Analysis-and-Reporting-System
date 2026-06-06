@@ -1,7 +1,9 @@
 """
 道路巡检数据分析与报告系统 - 统计分析模块
 """
-from config import DEFECT_TYPES, SEVERITY_LEVELS
+import math
+
+from config import DEFECT_TYPES, GPS_MISMATCH_THRESHOLD_METERS, SEVERITY_LEVELS
 
 
 def analyze_inspection(inspection, defects_query, images_query, gps_tracks_query) -> dict:
@@ -27,7 +29,7 @@ def analyze_inspection(inspection, defects_query, images_query, gps_tracks_query
         'type_distribution': _count_by_type(defects),
         'severity_distribution': _count_by_severity(defects),
         'confidence_stats': _confidence_stats(defects),
-        'defect_list': [_defect_to_item(d, images) for d in defects],
+        'defect_list': [_defect_to_item(d, images, gps_tracks) for d in defects],
         'gps_summary': _gps_summary(gps_tracks),
         'maintenance_summary': _maintenance_summary(defects),
     }
@@ -78,9 +80,11 @@ def _confidence_stats(defects) -> dict:
     }
 
 
-def _defect_to_item(defect, images) -> dict:
+def _defect_to_item(defect, images, gps_tracks) -> dict:
     """病害记录转前端展示格式"""
     image = next((i for i in images if i.id == defect.image_id), None)
+    gps_status = gps_error_info(defect.gps_lat, defect.gps_lng, gps_tracks)
+    gps_text = f'{defect.gps_lat:.6f}, {defect.gps_lng:.6f}' if defect.gps_lat is not None and defect.gps_lng is not None else '未定位'
     return {
         'id': defect.id,
         'type': defect.defect_type,
@@ -88,9 +92,38 @@ def _defect_to_item(defect, images) -> dict:
         'severity_label': SEVERITY_LEVELS.get(defect.severity, '未知'),
         'confidence': defect.confidence,
         'image_name': image.filename if image else '未知',
-        'gps': f'{defect.gps_lat:.6f}, {defect.gps_lng:.6f}' if defect.gps_lat else '未定位',
+        'gps': gps_text,
+        'gps_error': gps_status['gps_error'],
+        'gps_error_distance': gps_status['distance_meters'],
         'description': defect.description or '',
     }
+
+
+def gps_error_info(lat, lng, gps_tracks) -> dict:
+    if lat is None or lng is None or not gps_tracks:
+        return {'gps_error': False, 'distance_meters': None}
+
+    nearest = min(
+        (_distance_meters(lat, lng, track.lat, track.lng) for track in gps_tracks),
+        default=None,
+    )
+    if nearest is None:
+        return {'gps_error': False, 'distance_meters': None}
+
+    return {
+        'gps_error': nearest > GPS_MISMATCH_THRESHOLD_METERS,
+        'distance_meters': round(nearest, 1),
+    }
+
+
+def _distance_meters(lat1, lng1, lat2, lng2):
+    radius = 6371000
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lng2 - lng1)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def _gps_summary(gps_tracks) -> dict:

@@ -29,6 +29,7 @@
                     <div><i style="background:#4caf50;"></i> 轻微病害</div>
                     <div><i style="background:#ff9800;"></i> 中等病害</div>
                     <div><i style="background:#f44336;"></i> 严重病害</div>
+                    <div><i style="background:#dc3545; border:2px solid #111;"></i> GPS有误</div>
                 </div>
             </div>
         </div>
@@ -61,7 +62,7 @@ if (trackPoints.length > 0) {
     centerLng = trackPoints.reduce((s,p) => s + p.lng, 0) / trackPoints.length;
     hasData = true;
 } else if (defectPoints.length > 0) {
-    const valid = defectPoints.filter(d => d.gps_lat && d.gps_lng);
+    const valid = defectPoints.filter(d => d.gps_lat !== null && d.gps_lng !== null);
     if (valid.length > 0) {
         centerLat = valid.reduce((s,d) => s + d.gps_lat, 0) / valid.length;
         centerLng = valid.reduce((s,d) => s + d.gps_lng, 0) / valid.length;
@@ -93,11 +94,16 @@ const sevColors = {1: '#4caf50', 2: '#ff9800', 3: '#f44336'};
 const sevLabels = {1: '轻微', 2: '中等', 3: '严重'};
 
 defectPoints.forEach(d => {
-    if (d.gps_lat && d.gps_lng) {
-        const color = sevColors[d.severity] || '#999';
+    if (d.gps_lat !== null && d.gps_lng !== null) {
+        const color = d.gps_error ? '#dc3545' : (sevColors[d.severity] || '#999');
+        const warning = d.gps_error ? `<br><span style="color:#dc3545;font-weight:bold;">GPS有误，偏离轨迹 ${d.distance_meters} m</span>` : '';
         L.circleMarker([d.gps_lat, d.gps_lng], {
-            radius: 8, color: color, fillColor: color, fillOpacity: 0.6, weight: 2,
-        }).bindPopup(`<b>${d.defect_type}</b><br>严重程度: ${sevLabels[d.severity] || '未知'}<br>置信度: ${(d.confidence*100).toFixed(1)}%`)
+            radius: d.gps_error ? 10 : 8,
+            color: d.gps_error ? '#111' : color,
+            fillColor: color,
+            fillOpacity: 0.7,
+            weight: d.gps_error ? 3 : 2,
+        }).bindPopup(`<b>${d.defect_type}</b><br>严重程度: ${sevLabels[d.severity] || '未知'}<br>置信度: ${(d.confidence*100).toFixed(1)}%${warning}`)
           .addTo(map);
     }
 });
@@ -106,8 +112,8 @@ defectPoints.forEach(d => {
 if (trackPoints.length > 1) {
     const bounds = L.latLngBounds(trackPoints.map(p => [p.lat, p.lng]));
     map.fitBounds(bounds, { padding: [30, 30] });
-} else if (defectPoints.filter(d => d.gps_lat).length > 1) {
-    const valid = defectPoints.filter(d => d.gps_lat && d.gps_lng);
+} else if (defectPoints.filter(d => d.gps_lat !== null && d.gps_lng !== null).length > 1) {
+    const valid = defectPoints.filter(d => d.gps_lat !== null && d.gps_lng !== null);
     const bounds = L.latLngBounds(valid.map(d => [d.gps_lat, d.gps_lng]));
     map.fitBounds(bounds, { padding: [30, 30] });
 }

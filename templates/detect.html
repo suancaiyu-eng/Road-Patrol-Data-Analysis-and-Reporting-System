@@ -82,21 +82,25 @@ document.querySelectorAll('.detect-btn:not(.disabled)').forEach(btn => {
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
             body: `image_id=${imageId}`
         })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                document.getElementById('resultTitle').textContent = `检测完成 - 发现 ${data.defect_count} 处病害`;
-                document.getElementById('resultBadge').innerHTML = `<span class="badge bg-info">方法: ${data.method}</span>`;
-
-                resultArea.innerHTML = data.annotated_image
-                    ? `<img src="data:image/jpeg;base64,${data.annotated_image}" style="max-width:100%; border-radius:6px;">`
-                    : '<div class="text-muted py-4">检测完成，但无标注图像返回</div>';
-
-                // 显示病害列表
-                showDefectList(data.defects);
-                this.classList.add('disabled');
-                this.insertAdjacentHTML('afterbegin', '<span class="badge bg-success me-1">✓</span>');
+        .then(async r => {
+            const data = await r.json();
+            if (!r.ok || !data.success) {
+                throw new Error(data.error || '检测未成功完成');
             }
+            return data;
+        })
+        .then(data => {
+            document.getElementById('resultTitle').textContent = `检测完成 - 发现 ${data.defect_count} 处病害`;
+            document.getElementById('resultBadge').innerHTML = `<span class="badge bg-info">方法: ${data.method}</span>`;
+
+            resultArea.innerHTML = data.annotated_image
+                ? `<img src="data:image/jpeg;base64,${data.annotated_image}" style="max-width:100%; border-radius:6px;">`
+                : '<div class="text-muted py-4">检测完成，但无标注图像返回</div>';
+
+            // 显示病害列表
+            showDefectList(data.defects);
+            this.classList.add('disabled');
+            this.insertAdjacentHTML('afterbegin', '<span class="badge bg-success me-1">✓</span>');
         })
         .catch(err => {
             resultArea.innerHTML = `<div class="alert alert-danger">检测失败: ${err.message}</div>`;
@@ -113,7 +117,8 @@ document.getElementById('batchDetectBtn')?.addEventListener('click', function() 
     fetch(`/detect/{{ inspection.id }}/batch`, { method: 'POST' })
     .then(r => r.json())
     .then(data => {
-        alert(`批量检测完成！处理了 ${data.processed} 张图像，共发现 ${data.total_defects} 处病害。`);
+        const failedText = data.failed?.length ? `，失败 ${data.failed.length} 张` : '';
+        alert(`批量检测完成！处理了 ${data.processed} 张图像${failedText}，共发现 ${data.total_defects} 处病害。`);
         location.reload();
     })
     .catch(err => alert('批量检测失败: ' + err.message));

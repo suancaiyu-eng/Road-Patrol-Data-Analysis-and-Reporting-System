@@ -55,10 +55,12 @@
                     </div>
 
                     <!-- GPS数据 -->
-                    <h6 class="text-primary mb-3">GPS轨迹数据 <small class="text-muted">（可选，CSV格式）</small></h6>
-                    <div class="mb-3">
+                    <div>
+                        <h6 class="text-primary mb-3">GPS轨迹校验数据 <small class="text-muted">（可选，CSV格式）</small></h6>
+                        <div class="mb-3">
                         <input type="file" name="gps_file" class="form-control" accept=".csv">
-                        <div class="form-text">CSV需包含列: lat/latitude, lng/longitude/lon (可选: alt, speed, timestamp)</div>
+                        <div class="form-text">病害定位以照片 GPS 为准；CSV只作为轨迹参考，用于判断照片 GPS 是否偏离轨迹。</div>
+                        </div>
                     </div>
 
                     <hr>
@@ -80,12 +82,19 @@
                     <li>支持 JPG / PNG / BMP 格式</li>
                     <li>建议分辨率 ≥ 1920×1080</li>
                     <li>单文件 ≤ 20MB</li>
-                    <li>建议包含GPS元数据（EXIF）</li>
+                    <li>带GPS照片建议包含EXIF GPS，或在右上角清晰显示经纬度文字</li>
+                </ul>
+                <p><strong>定位规则：</strong></p>
+                <ul>
+                    <li>系统优先读取照片 EXIF GPS；如果右上角有 GPS 文字水印，会尝试 OCR 识别。</li>
+                    <li>上传 GPS CSV 后，系统会将照片 GPS 与轨迹点对比，偏离过大时标注“GPS有误”。</li>
+                    <li>未上传 GPS CSV 时，系统会用照片 GPS 生成轨迹摘要。</li>
                 </ul>
                 <p><strong>GPS CSV格式示例：</strong></p>
-                <pre style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:11px;">lat,lng,alt,speed,timestamp
-25.2744,110.2901,150,36,2025-03-15T09:00:00
-25.2750,110.2915,152,38,2025-03-15T09:00:05</pre>
+                <pre style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:11px;">filename,lat,lng,alt,speed,timestamp
+road_001.jpg,25.2744,110.2901,150,36,2025-03-15T09:00:00
+road_002.jpg,25.2750,110.2915,152,38,2025-03-15T09:00:05</pre>
+                <p class="text-muted">CSV需包含 lat/latitude、lng/longitude/lon；其他字段为可选。</p>
                 <p class="text-muted mb-0">导入后可在"病害检测"页面执行AI分析。</p>
             </div>
         </div>

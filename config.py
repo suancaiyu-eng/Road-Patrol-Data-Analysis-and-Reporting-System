@@ -16,6 +16,7 @@ SAMPLE_FOLDER = os.path.join(BASE_DIR, 'sample_data')
 
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp', 'tiff'}
 ALLOWED_GPS_EXTENSIONS = {'csv', 'gpx', 'json'}
+GPS_MISMATCH_THRESHOLD_METERS = 100
 
 # YOLO模型配置
 YOLO_MODEL_PATH = os.path.join(MODEL_FOLDER, 'road_defect.onnx')
